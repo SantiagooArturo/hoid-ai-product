@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 
 export default function Sidebar() {
   const [darkMode, setDarkMode] = useState(false)
@@ -37,14 +38,18 @@ export default function Sidebar() {
       </div>
       <nav className="mt-6">
         <div className="px-4 space-y-2">
-          <Button variant="ghost" className="w-full justify-start">
-            <Home className="mr-2 h-4 w-4" />
-            Dashboard
-          </Button>
-          <Button variant="ghost" className="w-full justify-start">
-            <History className="mr-2 h-4 w-4" />
-            Recording History
-          </Button>
+          <Link href="/dashboard" className="w-full">
+            <Button variant="ghost" className="w-full justify-start">
+              <Home className="mr-2 h-4 w-4" />
+              Dashboard
+            </Button>
+          </Link>
+          <Link href="/recording-history" className="w-full">
+            <Button variant="ghost" className="w-full justify-start">
+              <History className="mr-2 h-4 w-4" />
+              Recording History
+            </Button>
+          </Link>
           <Button variant="ghost" className="w-full justify-start">
             <Settings className="mr-2 h-4 w-4" />
             Settings

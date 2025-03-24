@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Hoid AI Tab Selector</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 10px;
+    }
+    .tab-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .tab-item {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+    }
+    .tab-item:hover {
+      background-color: #f5f5f5;
+    }
+  </style>
+</head>
+<body>
+  <h3>Select a tab to record</h3>
+  <div id="tabList" class="tab-list"></div>
+  <script src="popup.js"></script>
+</body>
+</html> 

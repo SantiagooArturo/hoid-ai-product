@@ -1,12 +1,30 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Mic, Square, AudioWaveformIcon as Waveform, Loader2 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import QuickStudyModes from "@/components/QuickStudyModes"
 import StudyMaterials from "@/components/StudyMaterials"
+
+// Definir tipos para la grabación y contenido generado
+interface GeneratedContent {
+  transcription: string;
+  summary: string;
+  studyGuide: string;
+  quickReview?: string;
+  mindMap?: string;
+}
+
+interface Recording {
+  id: number;
+  title: string;
+  date: string;
+  duration: string;
+  size: string;
+  content: GeneratedContent;
+}
 
 export default function AudioRecorder() {
   const [isRecording, setIsRecording] = useState(false)
@@ -15,12 +33,80 @@ export default function AudioRecorder() {
   const [transcription, setTranscription] = useState("")
   const [summary, setSummary] = useState("")
   const [studyGuide, setStudyGuide] = useState("")
+  const [quickReview, setQuickReview] = useState("")
   const [error, setError] = useState("")
   const [isSelectingTab, setIsSelectingTab] = useState(false)
+  const [recordingTitle, setRecordingTitle] = useState("Grabación sin título")
+  const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null)
+  const [recordingDuration, setRecordingDuration] = useState("00:00")
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Cargar grabaciones guardadas al inicio
+  useEffect(() => {
+    // Este efecto se ejecutará solo en el cliente
+    if (typeof window !== 'undefined') {
+      const savedTitle = localStorage.getItem('currentRecordingTitle');
+      if (savedTitle) {
+        setRecordingTitle(savedTitle);
+      }
+    }
+    
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Función para formatear la duración
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Función para guardar grabación en localStorage
+  const saveRecording = (content: GeneratedContent) => {
+    try {
+      // Calcular tamaño aproximado del contenido en KB
+      const contentString = JSON.stringify(content);
+      const contentSize = (new Blob([contentString]).size / 1024).toFixed(1);
+      
+      const recording: Recording = {
+        id: Date.now(),
+        title: recordingTitle,
+        date: new Date().toISOString().split('T')[0],
+        duration: recordingDuration,
+        size: `${contentSize} KB`,
+        content
+      };
+      
+      // Obtener grabaciones existentes
+      const savedRecordings = localStorage.getItem('recordings');
+      let recordings: Recording[] = savedRecordings ? JSON.parse(savedRecordings) : [];
+      
+      // Añadir nueva grabación
+      recordings.unshift(recording);
+      
+      // Guardar
+      localStorage.setItem('recordings', JSON.stringify(recordings));
+      
+      console.log('Grabación guardada correctamente:', recording);
+      
+      // Resetear título para la próxima grabación
+      setRecordingTitle("Grabación sin título");
+      localStorage.removeItem('currentRecordingTitle');
+      
+      return recording;
+    } catch (err) {
+      console.error('Error al guardar la grabación:', err);
+      return null;
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -88,6 +174,19 @@ export default function AudioRecorder() {
       mediaRecorder.start(1000)
       setIsRecording(true)
       console.log('Grabación iniciada')
+      
+      // Establecer tiempo inicial y comenzar timer
+      const startTime = new Date();
+      setRecordingStartTime(startTime);
+      
+      // Iniciar contador de tiempo
+      let secondsElapsed = 0;
+      timerIntervalRef.current = setInterval(() => {
+        secondsElapsed++;
+        const formattedTime = formatDuration(secondsElapsed);
+        setRecordingDuration(formattedTime);
+      }, 1000);
+      
     } catch (err) {
       setIsSelectingTab(false)
       console.error('Error detallado:', err)
@@ -113,6 +212,11 @@ export default function AudioRecorder() {
       mediaRecorderRef.current.stop()
       streamRef.current?.getTracks().forEach(track => track.stop())
       setIsRecording(false)
+      
+      // Detener el contador de tiempo
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
     }
   }
 
@@ -196,6 +300,39 @@ export default function AudioRecorder() {
           const studyGuideData = await studyGuideResponse.json()
           console.log('Guía de estudio recibida:', studyGuideData)
           setStudyGuide(studyGuideData.content)
+          
+          // Generate quick review
+          console.log('Generando repaso rápido...')
+          const quickReviewResponse = await fetch('/api/generate-quick-review', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text: transcriptionData.text,
+              summary: analysisData.content[0].text
+            })
+          })
+
+          if (!quickReviewResponse.ok) {
+            const errorData = await quickReviewResponse.json()
+            console.error('Error generando repaso rápido:', errorData)
+            // No lanzamos error para no interrumpir el flujo
+          } else {
+            const quickReviewData = await quickReviewResponse.json()
+            console.log('Repaso rápido recibido:', quickReviewData)
+            setQuickReview(quickReviewData.content)
+          }
+          
+          // Guardar la grabación con todo el contenido generado
+          const content: GeneratedContent = {
+            transcription: transcriptionData.text,
+            summary: analysisData.content[0].text,
+            studyGuide: studyGuideData.content,
+            quickReview: quickReview
+          };
+          
+          saveRecording(content);
 
         } catch (err) {
           console.error('Error en el proceso:', err)
@@ -204,6 +341,7 @@ export default function AudioRecorder() {
           setTranscription("")
           setSummary("")
           setStudyGuide("")
+          setQuickReview("")
         } finally {
           setIsAnalyzing(false)
           setIsTranscribing(false)
@@ -215,10 +353,18 @@ export default function AudioRecorder() {
       setTranscription("")
       setSummary("")
       setStudyGuide("")
+      setQuickReview("")
       setIsAnalyzing(false)
       setIsTranscribing(false)
     }
   }
+
+  // Función para manejar el cambio de título
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTitle = e.target.value;
+    setRecordingTitle(newTitle);
+    localStorage.setItem('currentRecordingTitle', newTitle);
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -234,7 +380,7 @@ export default function AudioRecorder() {
                   <div className="h-24 w-full flex items-center justify-center">
                     <Waveform className="h-16 w-16 text-red-500 animate-pulse" />
                   </div>
-                  <p className="text-red-500 font-medium">Recording...</p>
+                  <p className="text-red-500 font-medium">Recording... {recordingDuration}</p>
                 </div>
               ) : isAnalyzing ? (
                 <div className="flex flex-col items-center">
@@ -253,6 +399,22 @@ export default function AudioRecorder() {
                 </div>
               )}
             </div>
+            
+            {!isRecording && !isAnalyzing && !isSelectingTab && (
+              <div className="mb-4">
+                <label htmlFor="recordingTitle" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Título de la grabación
+                </label>
+                <input
+                  type="text"
+                  id="recordingTitle"
+                  value={recordingTitle}
+                  onChange={handleTitleChange}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  placeholder="Ingresa un título descriptivo"
+                />
+              </div>
+            )}
 
             <div className="flex justify-center space-x-4">
               <Button

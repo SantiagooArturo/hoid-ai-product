@@ -9,54 +9,65 @@ import { History, Search, Filter, Calendar, Download, Trash2, X, FileText, BookO
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog"
 import { useRouter } from "next/navigation"
-
-// Tipo para los contenidos generados
-interface GeneratedContent {
-  transcription?: string;
-  summary?: string;
-  studyGuide?: string;
-  quickReview?: string;
-  mindMap?: string;
-}
-
-// Tipo para grabaciones con contenido asociado
-interface Recording {
-  id: number;
-  title: string;
-  date: string;
-  duration: string;
-  size: string;
-  content?: GeneratedContent;
-}
+import { useAuth } from "@/hooks/useAuth"
+import { 
+  getUserRecordings, 
+  deleteRecording as deleteRecordingFromFirebase,
+  type Recording,
+  type GeneratedContent 
+} from "@/lib/recordingsService"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function RecordingHistoryPage() {
   const [recordings, setRecordings] = useState<Recording[]>([])
   const [selectedRecording, setSelectedRecording] = useState<Recording | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  
   const router = useRouter()
+  const { user } = useAuth()
+  const { toast } = useToast()
 
-  // Cargar grabaciones desde localStorage
+  // Cargar grabaciones desde Firebase
   useEffect(() => {
-    const loadRecordings = () => {
+    const loadRecordings = async () => {
       try {
         setIsLoading(true)
+        
+        if (!user) {
+          // Si no hay usuario, intentar cargar desde localStorage
+          if (typeof window !== 'undefined') {
+            const savedRecordings = localStorage.getItem('recordings')
+            if (savedRecordings) {
+              setRecordings(JSON.parse(savedRecordings))
+            }
+          }
+          return
+        }
+        
+        // Cargar grabaciones de Firebase
+        const userRecordings = await getUserRecordings(user.uid)
+        setRecordings(userRecordings)
+      } catch (error) {
+        console.error('Error al cargar las grabaciones:', error)
+        
+        // Intentar cargar desde localStorage como fallback
         if (typeof window !== 'undefined') {
           const savedRecordings = localStorage.getItem('recordings')
           if (savedRecordings) {
-            const parsedRecordings: Recording[] = JSON.parse(savedRecordings)
-            setRecordings(parsedRecordings)
+            setRecordings(JSON.parse(savedRecordings))
           }
         }
-      } catch (error) {
-        console.error('Error al cargar las grabaciones:', error)
+        
+        setError("No se pudieron cargar las grabaciones")
       } finally {
         setIsLoading(false)
       }
     }
 
     loadRecordings()
-  }, [])
+  }, [user])
 
   // Filtrar grabaciones por término de búsqueda
   const filteredRecordings = recordings.filter(
@@ -64,13 +75,37 @@ export default function RecordingHistoryPage() {
   )
 
   // Función para eliminar una grabación
-  const deleteRecording = (id: number) => {
+  const deleteRecording = async (id: string) => {
     try {
-      const updatedRecordings = recordings.filter(recording => recording.id !== id)
-      setRecordings(updatedRecordings)
-      localStorage.setItem('recordings', JSON.stringify(updatedRecordings))
+      if (user) {
+        // Eliminar de Firebase
+        await deleteRecordingFromFirebase(id)
+        
+        // Actualizar estado local
+        setRecordings(prev => prev.filter(recording => recording.id !== id))
+        
+        toast({
+          title: "Grabación eliminada",
+          description: "La grabación ha sido eliminada correctamente",
+          variant: "default"
+        })
+      } else {
+        // Eliminar de localStorage (solo si no hay usuario)
+        const savedRecordings = localStorage.getItem('recordings')
+        if (savedRecordings) {
+          const parsedRecordings = JSON.parse(savedRecordings)
+          const updatedRecordings = parsedRecordings.filter((rec: any) => rec.id !== id)
+          localStorage.setItem('recordings', JSON.stringify(updatedRecordings))
+          setRecordings(updatedRecordings)
+        }
+      }
     } catch (error) {
       console.error('Error al eliminar la grabación:', error)
+      toast({
+        title: "Error",
+        description: "No se pudo eliminar la grabación",
+        variant: "destructive"
+      })
     }
   }
 
@@ -88,6 +123,11 @@ export default function RecordingHistoryPage() {
       URL.revokeObjectURL(url)
     } catch (error) {
       console.error('Error al descargar el contenido:', error)
+      toast({
+        title: "Error",
+        description: "No se pudo descargar el contenido",
+        variant: "destructive"
+      })
     }
   }
 
@@ -131,6 +171,13 @@ export default function RecordingHistoryPage() {
                   <div className="py-12 text-center">
                     <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-4"></div>
                     <p className="text-gray-500">Cargando grabaciones...</p>
+                  </div>
+                ) : error ? (
+                  <div className="py-12 text-center">
+                    <div className="text-red-500 mb-4">{error}</div>
+                    <Button onClick={() => router.push('/dashboard')}>
+                      Volver al Dashboard
+                    </Button>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -319,6 +366,68 @@ export default function RecordingHistoryPage() {
                                           </CardContent>
                                         </Card>
                                       </TabsContent>
+                                      
+                                      {recording.content?.mindMap && (
+                                        <TabsContent value="mindMap" className="mt-4">
+                                          <Card>
+                                            <CardHeader>
+                                              <CardTitle className="text-lg">Mapa Mental</CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="bg-gray-50 dark:bg-gray-800 rounded-md p-4">
+                                              <pre className="whitespace-pre-wrap font-sans">
+                                                {recording.content.mindMap}
+                                              </pre>
+                                              <div className="mt-4 flex justify-end">
+                                                <Button 
+                                                  variant="outline" 
+                                                  size="sm" 
+                                                  className="gap-1"
+                                                  onClick={() => recording.content?.mindMap && 
+                                                    downloadContent(
+                                                      recording.content.mindMap, 
+                                                      `mapa_mental_${recording.title.replace(/\s+/g, '_')}.txt`
+                                                    )
+                                                  }
+                                                >
+                                                  <Download className="h-4 w-4" />
+                                                  Descargar
+                                                </Button>
+                                              </div>
+                                            </CardContent>
+                                          </Card>
+                                        </TabsContent>
+                                      )}
+                                      
+                                      {recording.content?.flashcards && (
+                                        <TabsContent value="flashcards" className="mt-4">
+                                          <Card>
+                                            <CardHeader>
+                                              <CardTitle className="text-lg">Flashcards</CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="bg-gray-50 dark:bg-gray-800 rounded-md p-4">
+                                              <pre className="whitespace-pre-wrap font-sans">
+                                                {recording.content.flashcards}
+                                              </pre>
+                                              <div className="mt-4 flex justify-end">
+                                                <Button 
+                                                  variant="outline" 
+                                                  size="sm" 
+                                                  className="gap-1"
+                                                  onClick={() => recording.content?.flashcards && 
+                                                    downloadContent(
+                                                      recording.content.flashcards, 
+                                                      `flashcards_${recording.title.replace(/\s+/g, '_')}.txt`
+                                                    )
+                                                  }
+                                                >
+                                                  <Download className="h-4 w-4" />
+                                                  Descargar
+                                                </Button>
+                                              </div>
+                                            </CardContent>
+                                          </Card>
+                                        </TabsContent>
+                                      )}
                                     </Tabs>
                                   </DialogContent>
                                 </Dialog>
@@ -331,7 +440,9 @@ export default function RecordingHistoryPage() {
                                       recording.content?.transcription,
                                       recording.content?.summary,
                                       recording.content?.studyGuide,
-                                      recording.content?.quickReview
+                                      recording.content?.quickReview,
+                                      recording.content?.mindMap,
+                                      recording.content?.flashcards
                                     ].filter(Boolean).join('\n\n---\n\n');
                                     downloadContent(allContent, `grabacion_${recording.title.replace(/\s+/g, '_')}.txt`);
                                   }}
@@ -355,7 +466,7 @@ export default function RecordingHistoryPage() {
                   </div>
                 )}
 
-                {!isLoading && filteredRecordings.length === 0 && (
+                {!isLoading && !error && filteredRecordings.length === 0 && (
                   <div className="py-12 text-center">
                     <History className="h-12 w-12 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">

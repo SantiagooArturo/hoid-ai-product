@@ -7,16 +7,15 @@ import { Mic, Square, AudioWaveformIcon as Waveform, Loader2 } from "lucide-reac
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import QuickStudyModes from "@/components/QuickStudyModes"
 import StudyMaterials from "@/components/StudyMaterials"
+import { useAuth } from "@/hooks/useAuth"
+import { 
+  saveRecording as saveRecordingToFirebase, 
+  migrateLocalStorageToFirebase, 
+  type GeneratedContent 
+} from "@/lib/recordingsService"
+import { useToast } from "@/components/ui/use-toast"
 
-// Definir tipos para la grabación y contenido generado
-interface GeneratedContent {
-  transcription: string;
-  summary: string;
-  studyGuide: string;
-  quickReview?: string;
-  mindMap?: string;
-}
-
+// Tipo local para la grabación (para compatibilidad con el código existente)
 interface Recording {
   id: number;
   title: string;
@@ -39,11 +38,16 @@ export default function AudioRecorder() {
   const [recordingTitle, setRecordingTitle] = useState("Grabación sin título")
   const [recordingStartTime, setRecordingStartTime] = useState<Date | null>(null)
   const [recordingDuration, setRecordingDuration] = useState("00:00")
+  const [isSaving, setIsSaving] = useState(false)
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Hooks
+  const { user } = useAuth()
+  const { toast } = useToast()
 
   // Cargar grabaciones guardadas al inicio
   useEffect(() => {
@@ -53,6 +57,17 @@ export default function AudioRecorder() {
       if (savedTitle) {
         setRecordingTitle(savedTitle);
       }
+
+      // Intentar migrar grabaciones antiguas de localStorage a Firebase cuando el usuario inicia sesión
+      if (user) {
+        migrateLocalStorageToFirebase(user.uid)
+          .then(() => {
+            console.log('Migración de grabaciones completada');
+          })
+          .catch((error) => {
+            console.error('Error en la migración de grabaciones:', error);
+          });
+      }
     }
     
     return () => {
@@ -60,7 +75,7 @@ export default function AudioRecorder() {
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, []);
+  }, [user]);
 
   // Función para formatear la duración
   const formatDuration = (seconds: number): string => {
@@ -69,42 +84,66 @@ export default function AudioRecorder() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Función para guardar grabación en localStorage
-  const saveRecording = (content: GeneratedContent) => {
+  // Función para guardar grabación en Firebase
+  const saveRecording = async (content: GeneratedContent) => {
+    if (!user) {
+      toast({
+        title: "No has iniciado sesión",
+        description: "Debes iniciar sesión para guardar grabaciones",
+        variant: "destructive"
+      });
+      return null;
+    }
+
     try {
-      // Calcular tamaño aproximado del contenido en KB
-      const contentString = JSON.stringify(content);
-      const contentSize = (new Blob([contentString]).size / 1024).toFixed(1);
+      setIsSaving(true);
       
-      const recording: Recording = {
+      // Guardar en Firebase
+      const savedRecording = await saveRecordingToFirebase(
+        user.uid,
+        recordingTitle,
+        recordingDuration,
+        content
+      );
+      
+      // También mantener una copia local para compatibilidad con el código existente
+      // Esto podría eliminarse en el futuro
+      const localRecording: Recording = {
         id: Date.now(),
         title: recordingTitle,
         date: new Date().toISOString().split('T')[0],
         duration: recordingDuration,
-        size: `${contentSize} KB`,
+        size: savedRecording.size,
         content
       };
       
-      // Obtener grabaciones existentes
+      // Guardar en localStorage (podríamos deprecar esto en el futuro)
       const savedRecordings = localStorage.getItem('recordings');
       let recordings: Recording[] = savedRecordings ? JSON.parse(savedRecordings) : [];
-      
-      // Añadir nueva grabación
-      recordings.unshift(recording);
-      
-      // Guardar
+      recordings.unshift(localRecording);
       localStorage.setItem('recordings', JSON.stringify(recordings));
       
-      console.log('Grabación guardada correctamente:', recording);
+      toast({
+        title: "Grabación guardada",
+        description: "Tu grabación ha sido guardada correctamente",
+        variant: "default"
+      });
       
       // Resetear título para la próxima grabación
       setRecordingTitle("Grabación sin título");
       localStorage.removeItem('currentRecordingTitle');
       
-      return recording;
+      return savedRecording;
     } catch (err) {
       console.error('Error al guardar la grabación:', err);
+      toast({
+        title: "Error al guardar",
+        description: "No se pudo guardar la grabación. Intenta nuevamente.",
+        variant: "destructive"
+      });
       return null;
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -332,7 +371,7 @@ export default function AudioRecorder() {
             quickReview: quickReview
           };
           
-          saveRecording(content);
+          await saveRecording(content);
 
         } catch (err) {
           console.error('Error en el proceso:', err)
@@ -440,6 +479,12 @@ export default function AudioRecorder() {
             {error && (
               <div className="text-red-500 text-sm text-center">
                 {error}
+              </div>
+            )}
+
+            {!user && !isRecording && !isAnalyzing && (
+              <div className="text-amber-500 text-xs text-center mt-4">
+                <p>Para guardar las grabaciones en tu cuenta, debes iniciar sesión.</p>
               </div>
             )}
           </CardContent>

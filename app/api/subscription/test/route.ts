@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 // Endpoint de prueba - NO USAR EN PRODUCCIÓN
-export async function GET() {
+export async function GET(req: Request) {
   try {
     // URL de la API de MercadoPago para crear preferencias
     const apiUrl = 'https://api.mercadopago.com/checkout/preferences';
@@ -12,6 +12,10 @@ export async function GET() {
     if (!accessToken) {
       throw new Error('MERCADOPAGO_ACCESS_TOKEN no está configurado');
     }
+
+    // Obtener userId de la URL si está disponible
+    const url = new URL(req.url);
+    const userId = url.searchParams.get('userId') || 'test_user_123';
 
     // Datos básicos para una preferencia de pago de prueba
     const preference = {
@@ -25,16 +29,24 @@ export async function GET() {
         },
       ],
       back_urls: {
-        success: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/subscription/success`,
-        failure: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/subscription/failure`,
-        pending: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/subscription/pending`,
+        success: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/subscription/success?userId=${userId}`,
+        failure: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/subscription/failure?userId=${userId}`,
+        pending: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/subscription/pending?userId=${userId}`,
       },
+      // Añadir metadata con el ID del usuario
+      metadata: {
+        user_id: userId
+      },
+      // Añadir referencia externa para identificar al usuario
+      external_reference: `user_${userId}`,
       // Añadir información del pagador para evitar el error de "no puedes pagarte a ti mismo"
       payer: {
         name: "Test",
         surname: "User",
         email: "test_user_12345678@testuser.com", // Usa un email ficticio diferente al de tu cuenta
-      }
+      },
+      // Configurar notificación para actualizar estado de suscripción
+      notification_url: `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhook/mercadopago?userId=${userId}&planId=test-item-1`
     };
 
     console.log('Creando preferencia de prueba:', JSON.stringify(preference, null, 2));

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Check, Loader2, ExternalLink, CreditCard } from "lucide-react";
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useAuth } from '@/hooks/useAuth';
 
 // Definición temporal de planes para testing
 const SUBSCRIPTION_PLANS = [
@@ -59,6 +60,7 @@ export default function PricingPlans() {
   const [error, setError] = useState<string | null>(null);
   const [checkoutData, setCheckoutData] = useState<any>(null);
   const [showDialog, setShowDialog] = useState(false);
+  const { user } = useAuth();
 
   const handleSelectPlan = async (planId: string) => {
     try {
@@ -67,8 +69,12 @@ export default function PricingPlans() {
       setError(null);
       setCheckoutData(null);
 
+      if (!user) {
+        throw new Error('Debes iniciar sesión para suscribirte');
+      }
+
       // Usar el endpoint de prueba que no requiere Firebase
-      const response = await fetch('/api/subscription/test', {
+      const response = await fetch(`/api/subscription/test?userId=${user.uid}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -130,7 +136,7 @@ export default function PricingPlans() {
             <CardFooter>
               <Button 
                 onClick={() => handleSelectPlan(plan.id)} 
-                disabled={loading} 
+                disabled={loading || !user} 
                 className="w-full"
               >
                 {loading && selectedPlan === plan.id ? (

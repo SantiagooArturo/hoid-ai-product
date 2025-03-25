@@ -203,25 +203,53 @@ export const migrateLocalStorageToFirebase = async (userId: string): Promise<voi
   try {
     if (typeof window === 'undefined') return;
     
+    // Verificar si ya se realizó la migración para este usuario
+    const migrationKey = `firebase_migration_${userId}`;
+    const alreadyMigrated = localStorage.getItem(migrationKey);
+    
+    if (alreadyMigrated === 'true') {
+      console.log('Las grabaciones ya fueron migradas para este usuario');
+      return;
+    }
+    
     const savedRecordings = localStorage.getItem('recordings');
     if (!savedRecordings) return;
     
     const recordings = JSON.parse(savedRecordings);
     if (!Array.isArray(recordings) || recordings.length === 0) return;
     
-    // Migrar cada grabación
+    // Verificar qué grabaciones ya existen en Firebase para evitar duplicados
+    // Obtener títulos existentes como forma simple de verificación
+    const existingRecordings = await getUserRecordings(userId);
+    const existingTitles = new Set(existingRecordings.map(r => r.title));
+    
+    let migratedCount = 0;
+    
+    // Migrar solo grabaciones que no existan en Firebase
     for (const rec of recordings) {
+      // Si la grabación con este título ya existe, omitirla
+      if (existingTitles.has(rec.title)) {
+        console.log(`Omitiendo grabación "${rec.title}" porque ya existe en Firebase`);
+        continue;
+      }
+      
       await saveRecording(
         userId,
         rec.title,
         rec.duration,
         rec.content
       );
+      
+      migratedCount++;
     }
     
-    console.log(`Migradas ${recordings.length} grabaciones de localStorage a Firebase`);
+    // Marcar como migrado para este usuario
+    localStorage.setItem(migrationKey, 'true');
     
-    // Opcionalmente, eliminar de localStorage después de migrar
+    console.log(`Migradas ${migratedCount} grabaciones de localStorage a Firebase`);
+    
+    // No eliminar de localStorage para mantener compatibilidad hacia atrás
+    // Si deseas limpiar localStorage, puedes descomentar la siguiente línea:
     // localStorage.removeItem('recordings');
   } catch (error) {
     console.error('Error al migrar grabaciones a Firebase:', error);

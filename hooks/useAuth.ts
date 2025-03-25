@@ -13,10 +13,12 @@ import {
   serverTimestamp 
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
+import { SubscriptionPlan, SubscriptionInfo } from '@/lib/types';
 
 // Tipo para el usuario con datos adicionales
 interface User extends FirebaseUser {
   occupation?: string;
+  subscription?: SubscriptionInfo;
 }
 
 // Tipo para los datos del usuario en Firestore
@@ -25,6 +27,14 @@ interface UserData {
   occupation: string;
   createdAt: any;
   lastLoginAt: any;
+  subscription?: {
+    plan: string;
+    status: string;
+    currentPeriodEnd?: any;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    cancelAtPeriodEnd?: boolean;
+  };
 }
 
 export function useAuth() {
@@ -42,9 +52,22 @@ export function useAuth() {
           const userData = userDoc.data() as UserData;
           
           // Combinar datos de Auth y Firestore
+          const subscription = userData?.subscription ? {
+            plan: userData.subscription.plan as SubscriptionPlan,
+            status: userData.subscription.status as 'active' | 'canceled' | 'past_due' | 'trialing',
+            currentPeriodEnd: userData.subscription.currentPeriodEnd?.toDate(),
+            stripeCustomerId: userData.subscription.stripeCustomerId,
+            stripeSubscriptionId: userData.subscription.stripeSubscriptionId,
+            cancelAtPeriodEnd: userData.subscription.cancelAtPeriodEnd
+          } : {
+            plan: SubscriptionPlan.FREE,
+            status: 'active' as const
+          };
+          
           setUser({
             ...firebaseUser,
-            occupation: userData?.occupation
+            occupation: userData?.occupation,
+            subscription
           });
         } catch (err) {
           console.error('Error fetching user data:', err);
@@ -68,12 +91,16 @@ export function useAuth() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const { user: firebaseUser } = userCredential;
 
-      // Crear documento del usuario en Firestore
+      // Crear documento del usuario en Firestore con plan gratuito por defecto
       const userData: UserData = {
         email,
         occupation,
         createdAt: serverTimestamp(),
-        lastLoginAt: serverTimestamp()
+        lastLoginAt: serverTimestamp(),
+        subscription: {
+          plan: SubscriptionPlan.FREE,
+          status: 'active'
+        }
       };
 
       await setDoc(doc(db, 'users', firebaseUser.uid), userData);
@@ -81,7 +108,11 @@ export function useAuth() {
       // Actualizar estado local
       setUser({
         ...firebaseUser,
-        occupation
+        occupation,
+        subscription: {
+          plan: SubscriptionPlan.FREE,
+          status: 'active'
+        }
       });
 
       return firebaseUser;

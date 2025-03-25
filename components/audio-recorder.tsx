@@ -106,22 +106,23 @@ export default function AudioRecorder() {
         content
       );
       
-      // También mantener una copia local para compatibilidad con el código existente
-      // Esto podría eliminarse en el futuro
-      const localRecording: Recording = {
-        id: Date.now(),
-        title: recordingTitle,
-        date: new Date().toISOString().split('T')[0],
-        duration: recordingDuration,
-        size: savedRecording.size,
-        content
-      };
-      
-      // Guardar en localStorage (podríamos deprecar esto en el futuro)
-      const savedRecordings = localStorage.getItem('recordings');
-      let recordings: Recording[] = savedRecordings ? JSON.parse(savedRecordings) : [];
-      recordings.unshift(localRecording);
-      localStorage.setItem('recordings', JSON.stringify(recordings));
+      // Ya no guardamos en localStorage cuando el usuario está autenticado
+      // Solo guardar en localStorage si no hay usuario (fallback)
+      if (!user) {
+        const localRecording: Recording = {
+          id: Date.now(),
+          title: recordingTitle,
+          date: new Date().toISOString().split('T')[0],
+          duration: recordingDuration,
+          size: "N/A", // No tenemos tamaño en el fallback local
+          content
+        };
+        
+        const savedRecordings = localStorage.getItem('recordings');
+        let recordings: Recording[] = savedRecordings ? JSON.parse(savedRecordings) : [];
+        recordings.unshift(localRecording);
+        localStorage.setItem('recordings', JSON.stringify(recordings));
+      }
       
       toast({
         title: "Grabación guardada",

@@ -1,6 +1,6 @@
 "use client"
 
-import { Home, Settings, History, HelpCircle, Moon, Sun, LogOut } from "lucide-react"
+import { Home, Settings, History, HelpCircle, Moon, Sun, LogOut, CreditCard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { useAuth } from "@/hooks/useAuth"
@@ -48,6 +48,12 @@ export default function Sidebar() {
             <Button variant="ghost" className="w-full justify-start">
               <History className="mr-2 h-4 w-4" />
               Recording History
+            </Button>
+          </Link>
+          <Link href="/dashboard/subscription" className="w-full">
+            <Button variant="ghost" className="w-full justify-start">
+              <CreditCard className="mr-2 h-4 w-4" />
+              Suscripción
             </Button>
           </Link>
           <Button variant="ghost" className="w-full justify-start">
